@@ -30,7 +30,7 @@ brew install mdbook
 
 ```sh
 git clone https://github.com/project-serum/anchor-book-cn.git
-cd anchor-book
+cd anchor-book-cn
 mdbook serve
 ```
 书就可以在浏览器的`http://localhost:3000`访问了。
