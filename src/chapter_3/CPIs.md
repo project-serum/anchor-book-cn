@@ -53,7 +53,7 @@ pub struct Data {
 }
 ```
 
-上面的代码并没什么特别的地方，只是一个非常简单的程序！有意思的地方回事它将怎么和我们接下来要创建的程序交互。（通过CPI）
+上面的代码并没什么特别的地方，只是一个非常简单的程序！有意思的地方是它将怎么和我们接下来要创建的程序交互。（通过跨程序调用，也就是CPI）
 
 在Workspace中运行
 ```
@@ -95,11 +95,11 @@ pub struct PullStrings<'info> {
 puppet = { path = "../puppet", features = ["cpi"]}
 ```
 
-`features = ["cpi"]`的配置是为了 is used so we can not only use puppet's types but also its instruction builders and cpi函数. Without those, we would have to use low level solana syscalls. Fortunately, anchor provides abstractions on top of those. By enabling the `cpi` feature, the puppet-master program gets access to the `puppet::cpi` module. Anchor generates this module automatically and it contains tailor-made instructions builders and cpi helpers for the program.
+`features = ["cpi"]`的配置是为了让我们不仅能够使用puppet的类，还能使用puppet的instruction builders还有cpi函数。 如果没有这些，我们就不得不用更低抽象层的solana syscalls。幸好anchor提供了这些接口的抽象，用起来会容易的多。 开启`cpi`功能之后, puppet-master程序就可以access到`puppet::cpi`模块。 Anchor 自动生成这个模块并且包含了专门的instructions builders还有对应的cpi helpers函数。
 
-In the case of the puppet program, the puppet-master uses the `SetData` instruction builder struct provided by the `puppet::cpi::accounts` module to submit the accounts the `SetData` instruction of the puppet program expects. Then, the puppet-master creates a new cpi context and passes it to the `puppet::cpi::set_data` cpi function. This function has the exact same function as the `set_data` function in the puppet program with the exception that it expects a `CpiContext` instead of a `Context`.
+对于puppet程序, puppet-master使用`puppet::cpi::accounts` 模块提供的`SetData` instruction builder struct来提交puppet程序期望的`SetData` instruction的accounts. 然后，puppet-master创建一个新的cpi context 并把它传入`puppet::cpi::set_data`cpi函数。 这个函数的功能和puppet program中的`set_data` function完全一样，只是这里的要传的context是`CpiContext`而不是`Context`。
 
-Setting up a CPI can distract from the business logic of the program so it's recommended to move the CPI setup into the `impl` block of the instruction. The puppet-master program then looks like this:
+初始化CPI的代码和可能会分散业务逻辑代码的可读性，所以推荐的做法是把它放到instruction的`impl`代码。puppet-master程序会是这个样子:
 ```rust,ignore
 use anchor_lang::prelude::*;
 use puppet::cpi::accounts::SetData;
@@ -134,7 +134,7 @@ impl<'info> PullStrings<'info> {
 }
 ```
 
-We can verify that everything works as expected by replacing the contents of the `puppet.ts` file with:
+我们可以验证有所得步骤都按预期可以运行，这秩序把`puppet.ts`文件得内容换成如下:
 ```ts
 import * as anchor from '@project-serum/anchor';
 import { Program } from '@project-serum/anchor';
@@ -174,13 +174,13 @@ describe('puppet', () => {
 });
 ```
 
-and running `anchor test`.
+然后运行`anchor test`.
 
-## Privilege Extension
+## Privilege Extension权限得延伸性
 
-CPIs extend the privileges of the caller to the callee. The puppet account was passed as a mutable account to the puppet-master but it was still mutable in the puppet program as well (otherwise the `expect` in the test would've failed). The same applies to signatures.
+CPIs 会把权限由调用者延续给被调用的程序. puppet account是传给puppet-master的mutable account但它对于通过CPI调用的puppet程序依然是mutable的(否则测试中的`expect`会报错). 这同样是适用于用户签名(signatures).
 
-If you want to prove this for yourself, add an `authority` field to the `Data` struct in the puppet program.
+如果你想验证这一点，可以在puppet程序加个`authority`字段给`Data`struct.
 ```rust,ignore
 #[account]
 pub struct Data {
@@ -189,7 +189,7 @@ pub struct Data {
 }
 ```
 
-and adjust the `initialize` function:
+然后调整`initialize`函数:
 ```rust,ignore
 pub fn initialize(ctx: Context<Initialize>, authority: Pubkey) -> Result<()> {
     ctx.accounts.puppet.authority = authority;
@@ -197,7 +197,7 @@ pub fn initialize(ctx: Context<Initialize>, authority: Pubkey) -> Result<()> {
 }
 ```
 
-Add `32` to the `space` constraint of the `puppet` field for the `Pubkey` field in the `Data` struct.
+加`32`给`puppet`的`space` constraint因为`Data` struct新加了`Pubkey`字段。
 ```rust,ignore
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -209,7 +209,7 @@ pub struct Initialize<'info> {
 }
 ```
 
-Then, adjust the `SetData` validation struct:
+然后, 调整`SetData`的validation struct:
 ```rust,ignore
 #[derive(Accounts)]
 pub struct SetData<'info> {
@@ -219,9 +219,9 @@ pub struct SetData<'info> {
 }
 ```
 
-The `has_one` constraint checks that `puppet.authority = authority.key()`.
+`has_one`这个限制条件检查`puppet.authority = authority.key()`.
 
-The puppet-master program now also needs adjusting:
+puppet-master程序现在也需要调整:
 ```rust,ignore
 use anchor_lang::prelude::*;
 use puppet::cpi::accounts::SetData;
@@ -261,7 +261,7 @@ impl<'info> PullStrings<'info> {
 }
 ```
 
-Finally, change the test:
+最后, 改一下test:
 
 ```ts
 import * as anchor from '@project-serum/anchor';
@@ -305,22 +305,21 @@ describe('puppet', () => {
 });
 ```
 
-The test passes because the signature that was given to the puppet-master by the authority was then extended to the puppet program which used it to check that the authority for the puppet account had signed the transaction.
+测试通过了，这是因为传给puppet-master的signature权限会被延申到puppet program，而puppet程序用signature来确认puppet account确实对交易进行了签名。
 
-> Privilege extension is convenient but also dangerous. If a CPI is unintentionally made to a malicious program,
-> this program has the same privileges as the caller.
-> Anchor protects you from CPIs to malicious programs with two measures.
-> First, the `Program<'info, T>` type checks that the given account is the expected program `T`.
-> Should you ever forget to use the `Program` type, the automatically generated cpi function
-> (in the previous example this was `puppet::cpi::set_data`)
-> also checks that the `cpi_program` argument equals the expected program.
+> Privilege extension特权延申算然很方便但是也很危险。如果一个对恶意程序的CPI被无意中调用了，就很危险了。
+> 因为这个程序的调用中程序和调用者的权限一样，相当于你给了恶意程序权限。
+> Anchor 有两个办法可以保护你无意中调用恶意程序的CPIs：
+> 首先, `Program<'info, T>` 类型会检查所提供的account是应该传入的正确的程序`T`。
+> 如果你忘了用`Program`类型, 自动生成的cpi function
+> (比如上个例子中的`puppet::cpi::set_data`)
+> 也会检查`cpi_program`的传入参数是应该传入的正确的程序。
 
-## Reloading an Account
+## 重新加载一个Account
 
-In the puppet program, the `Account<'info, T>` type is used for the `puppet` account. If a CPI edits an account of that type,
-the caller's account does not change during the instruction.
+在puppet程序中, `Account<'info, T>` 类型被用来表示`puppet` account. 如果通过CPI更改了一个该类型的account，那么在调用程序（caller）中的这个account在调用之后是不会变化的。
 
-You can easily see this for yourself by adding the following right after the `puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)` cpi call.
+你可以很容易自己验证这一点，可以把下面的代码加到`puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)` CPI调用之后。
 ```rust,ignore
 puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)?;
 if ctx.accounts.puppet.data != 42 {
@@ -328,11 +327,11 @@ if ctx.accounts.puppet.data != 42 {
 }
 Ok(())
 ```
-Now your test will fail. But why? After all the test used to pass, so the cpi definitely did change the `data` field to `42`.
+现在你的测试会失败。为啥呢？之前的测试是可以跑通的，所以CPI确实把`data`字段更新为`42`了。
 
-The reason the `data` field has not been updated to `42` in the caller is that at the beginning of the instruction the `Account<'info, T>` type deserializes the incoming bytes into a new struct. This struct is no longer connected to the underlying data in the account. The CPI changes the data in the underlying account but since the struct in the caller has no connection to the underlying account the struct in the caller remains unchanged.
+`data`字段没有在调用函数中更新的原因是，只有在instruction开始被处理的时候`Account<'info, T>`类型会反序列化输入的字节为一个新的struct。在这之后，这个struct就不再会随着链上account的数据更新而更新了。CPI更改了链上的account，但是因为调用程序中的struct和链上的account并没有联系，所以调用程序中的struct并不发生变化。
 
-If you need to read the value of an account that has just been changed by a CPI, you can call its `reload` method which will re-deserialize the account. If you put `ctx.accounts.puppet.reload()?;` right after the cpi call, the test will pass again.
+如果你需要读最新的刚刚被CPI更新过的account的状态，你可以调用`reload`方法，这样会重新反序列化account。如果你把`ctx.accounts.puppet.reload()?;`加到CPI调用之后，测试就可以通过了。
 
 ```rust,ignore
 puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)?;
@@ -343,14 +342,14 @@ if ctx.accounts.puppet.data != 42 {
 Ok(())
 ```
 
-## Returning values from a CPI
+## 如何从CPI返回值
 
-Since 1.8.12, the `set_return_data` and `get_return_data` syscalls can be used to set and get return data from CPIs. While these can already be used in anchor programs, anchor does not yet provide abstractions on top of them.
+在Solana 1.8.12之后, `set_return_data`和`get_return_data` syscalls可以被用来写和读CPIs的返回值。 虽然你已经可以在用Anchor的程序中直接使用这些接口, Anchor暂时还没有提供搭更好的抽象来简化。
 
-The return data can only be max 1024 bytes with these syscalls so it's worth briefly explaining the old workaround for CPI return values which is still relevant for return values bigger than 1024 bytes.
+syscalls的返回值最大只可以有1024字节，所以我们依然有必要介绍老的获取CPI返回值的方法，这样可以应付大于1024字节的情况。
 
-By using a CPI together with `reload` it's possible to simulate return values. One could imagine that instead of just setting the `data` field to `42` the puppet program did some calculation with the `42` and saved the result in `data`. The puppet-master can then call `reload` after the cpi and use the result of the puppet program's calculation.
+通过共同使用CPI和`reload`我们可以模拟返回值的功能。比如，一个例子就是，我们可能没有直接给`data`字段赋值为42，而是对`42`进行了一些计算，然后把结果保存到了`data`字段。然后puppet-master就可以在CPI之后调用`reload`，来使用计算的结果，实现返回值的效果。
 
-## Programs as Signers
+## Programs as Signers由程序来签名
 
-There's one more thing that can be done with CPIs. But for that, you need to first learn what PDAs are. We'll cover those in the next chapter.
+还有另外一个功能可以通过CPIs实现。但是，要了解的话，我们必须先学习什么是PDAs (由程序导出的地址)。这些我们会在下一个章讲解。
