@@ -1,25 +1,25 @@
-# PDAs
+# PDAs程序导出地址
 
-Knowing how to use PDAs is one of the most important skills for Solana Programming.
-They simplify the programming model and make programs more secure. So what are they?
+知道如果使用PDAs是Solana编程最重要的技巧之一。
+他们可以让变成模式变得更简单，更安全。那什么是PDAs呢？
 
-PDAs (program derived addresses) are addresses with special properties.
+PDAs (program derived addresses) 是有特殊属性的address，也就是地址。
 
-Unlike normal addresses, PDAs are not public keys and therefore do not have an associated private key. There are two use cases for PDAs. They provide a mechanism to build hashmap-like structures on-chain and they allow programs to sign instructions.
+和普通地址不同的是, PDAs不是真的公钥(public keys)，因此他们也没有相对应的私钥(private keys)。PDAs有两个使用场景。 第一，他们提供一种在链上实现类似hashmap的结构（key有开发者定义，value是地址）；第二，他们可以实现让程序为instruction签名。
 
-## Creation of a PDA
+## 如何生成一个PDA
 
-Before we dive into how to use PDAs in anchor, here's a short explainer on what PDAs are.
+在深入了解怎么在Anchor中使用PDA之前，我们先简单介绍一下什么是PDAs。
 
-PDAs are created by hashing a number of seeds the user can choose and the id of a program:
+PDAs是通过对几个用户定义的seeds值和program的id一起进行哈希运算生成的:
 ```rust,ignore
 // pseudo code
 let pda = hash(seeds, program_id);
 ```
 
-The seeds can be anything. A pubkey, a string, an array of numbers etc.
+seeds值可以是随意定义。 可以是公钥, 一个string, 或者一个数字的数组等等。
 
-There's a 50% chance that this hash function results in a public key (but PDAs are not public keys), so a bump has to be searched for so that we get a PDA:
+但又50%的概率这个哈希函数还是会生成一个合法的public key(但PDAs不能是public keys), 所以我们可以搜一个bump值到一起哈希直到我们找到一个不是合法的public key作为PDA:
 ```rust,ignore
 // pseudo code
 fn find_pda(seeds, program_id) {
@@ -34,25 +34,25 @@ fn find_pda(seeds, program_id) {
 }
 ```
 
-It is technically possible that no bump is found within 256 tries but this probability is negligible.
-If you're interested in the exact calculation of a PDA, check out the [`solana_program` source code](https://docs.rs/solana-program/latest/solana_program/pubkey/struct.Pubkey.html#method.find_program_address).
+理论上有可能256次轮询之后还是找不bump，但概率很小可以忽略。
+如果你对具体PDA怎么算的感兴趣，可以看[`solana_program` source code](https://docs.rs/solana-program/latest/solana_program/pubkey/struct.Pubkey.html#method.find_program_address).
 
-The first bump that results in a PDA is commonly called the "canonical bump". Other bumps may also result in a PDA but it's recommended to only use the canonical bump to avoid confusion.
+找到的第一个可以生成PDA的bump通常被称为“标准bump”。其他的bump值也可以生成合法的PDA，但推荐的做法是只用标准bump来避免误会。
 
-## Using PDAs
+## 使用PDAs
 
-We are now going to show you what you can do with PDAs and how to do it in Anchor!
+接下来我们会展示PDAs的功能和如何在Anchor中实现这些功能。
 
-### Hashmap-like structures using PDAs
+### 用PDAs实现类似Hashmap的结构 
 
-Before we dive into the specifics of creating hashmaps in anchor, let's look at how to create a hashmap with PDAs in general.
+在我们深入了解如果在Anchor中使用PDAs来创建hashmaps之前，我们先了解一下如果不用Anchor怎么实现。
 
-#### Building hashmaps with PDAs
+#### 用PDAs构建hashmaps
 
-PDAs are hashed from the bump, a program id, but also a number of seeds which can be freely chosen by the user.
-These seeds can be used to build hashmap-like structures on-chain.
+PDAs是通过对bump，program id，用户所选择的seed进行哈希计算得到的。
+这些seed可以被用来构建链上的类似的hashmap的结构.
 
-For instance, imagine you're building an in-browser game and want to store some user stats. Maybe their level and their in-game name. You could create an account with a layout that looks like this:
+例如,假设我们想开发一个网页游戏,并且需要储存一些用户的统计数据. 比如用户的等级和他们在游戏中的名字. 那么你可以创建一个大概这样的account:
 
 ```rust,ignore
 pub struct UserStats {
@@ -62,11 +62,12 @@ pub struct UserStats {
 }
 ```
 
-The `authority` would be the user the accounts belongs to.
+`authority`就是这个struct所属的用户.
 
-This approach creates the following problem. It's easy to go from the user stats account to the user account address (just read the `authority` field) but if you just have the user account address (which is more likely), how do you find the user stats account? You can't. This is a problem because your game probably has instructions that require both the user stats account and its authority which means the client needs to pass those accounts into the instruction (for example, a `ChangeName` instruction). So maybe the frontend could store a mapping between a user's account address and a user's info address in local storage. This works until the user accidentally wipes their local storage.
+这个方法会有这样一个问题, 它可以很容易的通过用户的stats账户拿到用户的account地址(读取`authority`字段), 但是如果你开始只有用户的account地址(更常见的情况, 比如用户刚打开页面), 我们怎么能找到所对应的stats 账号呢?
+这是做不到的. 这就成问题了, 因为你的游戏很可能有同时需要用户的stats账号和它的authority的instruction, 这意味着我们需要把这些账号同时传入instruction (例如, 用来改名字的`ChangeName` instruction). 也许前端可以在localStorage存一个映射用户地址到用户stats的mapping. 但这个办法一旦在用户不小心清空localStorage的时候就会出问题.
 
-With PDAs you can have a layout like this:
+如果用PDAs, 那我们可以用下面的结构:
 ```rust,ignore
 pub struct UserStats {
   level: u16,
@@ -74,9 +75,9 @@ pub struct UserStats {
   bump: u8
 }
 ```
-and encode the information about the relationship between the user and the user stats account in the address of the user stats account itself.
+然后把用户和用户的stats account的对应关系编码到用户stats account的地址本身中(通过使用用户address作为seed的一部分).
 
-Reusing the pseudo code from above:
+复用上面的伪代码:
 
 ```rust,ignore
 // pseudo code
@@ -84,21 +85,23 @@ let seeds = [b"user-stats", authority];
 let (pda, bump) = find_pda(seeds, game_program_id);
 ```
 
-When a user connects to your website, this pda calculation can be done client-side using their user account address as the `authority`. The  resulting pda then serves as the address of the user's stats account. The `b"user-stats"` is added in case there are other account types that are also PDAs. If there were an inventory account, it could be inferred using these seeds:
+当一个用户connect到你的站点之后, 这个PDA的计算可以在前端完成, 只需要用户的account地址作为`authority`. 生成的PDA然后就可以作为用户stats account的地址. `b"user-stats"`是作为命名域加到seed中的, 因为用户也许还有其他的PDAs.
+如果用户还需要定义一个表示库存的账号, 那这个库存账号的PDA可以用下面的seeds导出:
+
 ```rust,ignore
 let seeds = [b"inventory", authority];
 ```
 
-To summarize, we have used PDAs to create a mapping between a user and their user stats account. There is no single hashmap object that exposes a `get` function. Instead, each value (the user stats address) can be found by using certain seeds ("user-stats" and the user account address) as inputs to the `find_pda` function.
+总结一下, 我们用PDAs实现了一个用户到用户的stats account的mapping. 这里并没有一个单独的hashmap例可以通过`get`函数来调用. 这种映射是隐含的. 每个用户的stats account可以通过特定的seeds ("user-stats" 加上用户的地址)作为输入参数, 由`find_pda`函数来找到.
 
-#### How to build PDA hashmaps in Anchor
+#### Anchor中如果用PDA搭建hashmaps 
 
-Continuing with the example from the previous sections, create a new workspace
+继续上一小节中的例子, 创建一个新的workspace
 ```
 anchor init game
 ```
 
-and copy the following code
+然后复制下面的代码
 
 ```rust,ignore
 use anchor_lang::prelude::*;
@@ -145,12 +148,11 @@ pub struct CreateUserStats<'info> {
 }
 ```
 
-In the account validation struct we use `seeds` together with `init` to create a PDA with the desired seeds.
-Additionally, we add an empty `bump` constraint to signal to anchor that it should find the canonical bump itself.
-Then, in the handler, we call `ctx.bumps.get("user_stats")` to get the bump anchor found and save it to the user stats
-account as an extra property.
+在account validation struct中, 我们将`seeds`和`init`一起使用来创建PDA.
+额外的, 我们还加了一个空的`bump`限制条件来告诉Anchor我们要使用标准bump.
+然后, 在handler方法里面, 我们可以调用`ctx.bumps.get("user_stats")`来获取anchor找到的bump, 然后把它存到user stats account里面.
+如果在这之后我们想要在另外一个不同的instruction中使用这里创建的PDA, 我们可以用一个新的validation struct (这会通用调用`hash(seeds, user_stats.bump, game_program_id)`验证`user_stats` account确实是我们这里创建的):
 
-If we then want to use the created pda in a different instruction, we can add a new validation struct (This will check that the `user_stats` account is the pda created by running `hash(seeds, user_stats.bump, game_program_id)`):
 ```rust,ignore
 // validation struct
 #[derive(Accounts)]
@@ -160,7 +162,7 @@ pub struct ChangeUserName<'info> {
     pub user_stats: Account<'info, UserStats>,
 }
 ```
-and another handler function:
+然后是另一个handler function:
 ```rust,ignore
 // handler function (add this next to the create_user_stats function in the game module)
 pub fn change_user_name(ctx: Context<ChangeUserName>, new_name: String) -> Result<()> {
@@ -173,7 +175,7 @@ pub fn change_user_name(ctx: Context<ChangeUserName>, new_name: String) -> Resul
 }
 ```
 
-Finally, let's add a test. Copy this into `game.ts`
+最后, 我们来添加一个测试用例. 复制下面的代码到`game.ts`.
 
 ```ts
 import * as anchor from '@project-serum/anchor';
@@ -220,27 +222,29 @@ anchor.setProvider(anchor.Provider.env());
 });
 ```
 
-Exactly as described in the subchapter before this one, we use a `find` function to find the PDA. We can then use it just like a normal address. Well, almost. When we call `createUserStats`, we don't have to add the PDA to the `[signers]` array even though account creation requires a signature. This is because it is impossible to sign the transaction from outside the program as the PDA (it's not a public key so there is no private key to sign with). Instead, the signature is added when the CPI to the system program is made. We're going to explain how this works in the [Programs as Signers](#programs-as-signers) section.
+正如我们在之前的段落中描述的, 我们用了一个`find`来查找PDA. 然后我们就可以像对待普通address一样使用这个PDA(几乎). 当我们调用 `createUserStats`的时候, 我们不需要把PDA添加到`[signers]`, 即使创建新账号需要一个签名.
+这是因为作为PDA是无法在程序外部对transaction进行签名的(因为PDA并不是真的public key, 所以也就没有对应的private key来签名). 作为替代方案, 签名是在对system program进行CPI调用的时候添加的.
+这具体是什么原理, 我们会在[让程序作为Signers签名](#让程序作为Signers签名)小节介绍.
 
-#### Enforcing uniqueness
+#### 保证唯一性
 
-A subtle result of this hashmap structure is enforced uniqueness. When `init` is used with `seeds` and `bump`, it will always search for the canonical bump. This means that it can only be called once (because the 2nd time it's called the PDA will already be initialized). To illustrate how powerful enforced uniqueness is, consider a decentralized exchange program. In this program, anyone can create a new market for two assets. However, the program creators want liquidity to be concentrated so there should only be one market for every combination of two assets. This could be done without PDAs but would require a global account that saves all the different markets. Then upon market creation, the program would check whether the asset combination exists in the global market list. With PDAs this can be done in a much more straightforward way. Any market would simply be the PDA of the mint addresses of the two assets. The program would then check whether either of the two possible PDAs (because the market could've been created with the assets in reverse order) already exists.
+这个hashmap的结构的一个侧面的结果是保证了唯一性. 当`init`和`seeds`还有`bump`一起使用的时候, 它总会先搜索标准bump. 这意味着它只能被调用一次(因为第二次调用的时候, 同样地址的PDA已经被初始化了). 为演示保证唯一性有多强大, 我们拿一个区中心化交易所的应用来举例子. 在这个交易所的程序中, 任何人都可以用两种资产创建一个新的市场. 但是, 程序的创建者希望流动性更加集中并且每两个资产的组合应该只有一个对应的市场存在. 这个不需要PDA也可以实现, 但会需要一个表示全局的状态的来保存所有不同的市场. 然后在市场创建的时候, 程序会查资产的组后是否已经在全局市场列表中存在. 使用PDA的化就容易的多了. 任何市场可以直接通过对应的两个资产导出的PDA. 程序只需要检查导出的两个PDAs(因为两个地址作为seed的前后次序不同, 可以导出两个地址如[asset1, asset2] 和 [asset2, asset1])是否存在.
 
-### Programs as Signers
+### 让程序作为Signers签名
 
-Creating PDAs requires them to sign the `createAccount` CPI of the system program. How does that work?
+创建PDAs需要PDAs对system program的`createAccount`CPI签名. 这怎么实现呢?
 
-PDAs are not public keys so it's impossible for them to sign anything. However, PDAs can still pseudo sign CPIs.
-In anchor, to sign with a pda you have to change `CpiContext::new(cpi_program, cpi_accounts)` to `CpiContext::new_with_signer(cpi_program, cpi_accounts, seeds)` where the `seeds` argument are the seeds _and_ the bump the PDA was created with. 
-When the CPI is invoked, for each account in `cpi_accounts` the Solana runtime will check whether`hash(seeds, current_program_id) == account address` is true. If yes, that account's `is_signer` flag will be turned to true.
-This means a PDA derived from some program X, may only be used to sign CPIs that originate from that program X. This means that on a high level, PDA signatures can be considered program signatures.
+PDAs不是public keys, 所以他们是不可以对任何数据签名的. 但是, PDAs还是可以对CPI进行"伪"签名.
+在Anchor中,要对一个PDA签名, 你必须把`CpiContext::new(cpi_program, cpi_accounts)`改为`CpiContext::new_with_signer(cpi_program, cpi_accounts, seeds)`, 这里`seeds`参数是指seeds _还有_ PDA创建的时候产生的bump.
+当CPI被调用的时候, 对每个在`cpi_accounts`中的account, Solana的runtime都会检查`hash(seeds, current_program_id) == account address`是否是true. 如果是, 那个account的`is_signer`flag就会被设为true.
+这意味着, 一个有某程序program X导出的PDA, 只可以被用来由progrom X产生的CPI调用. 这也意味着, 宏观看, PDA的签名可以被认作程序的签名.
 
-This is great news because for many programs it is necessary that the program itself takes the authority over some assets.
-For instance, lending protocol programs need to manage deposited collateral and automated market maker programs need to manage the tokens put into their liquidity pools.
+这显然是好消息, 因为对于很多程序来说, 程序本身需要作为一些资产的Authority(程序需要能够签名).
+比如说, 借贷协议的程序需要管理被用户存如的抵押物, 而自动做市商(AMM)需要管理流动性池子里面的代币.
 
-Let's revisit the puppet workspace and add a PDA signature.
+让我们在回到puppet workspace, 然后加一个PDA的签名.
 
-First, adjust the puppet-master code:
+首先, 更新puppet-master的代码:
 ```rust,ignore
 use anchor_lang::prelude::*;
 use puppet::cpi::accounts::SetData;
@@ -282,9 +286,9 @@ impl<'info> PullStrings<'info> {
 }
 ```
 
-The `authority` account is now an `UncheckedAccount` instead of a `Signer`. When the puppet-master is invoked, the `authority` pda is not a signer yet so we mustn't add a check for it. We just care about the puppet-master being able to sign so we don't add any additional seeds. Just a bump that is calculated off-chain and then passed to the function.
+`authority` account现在是一个`UncheckedAccount`而非`Signer`. 当puppet-master被调用的时候, `authority` pda还不是一个signer, 所以我们肯定不能用Signer检查. 我们只在乎puppet-master可以签名, 所以我们不需要加任何seeds. 只有一个在链下计算的bump来传入function 就可以了.
 
-Finally, this is the new `puppet.ts`:
+最后, 这是更新后的`puppet.ts`:
 ```ts
 import * as anchor from '@project-serum/anchor';
 import { Program } from '@project-serum/anchor';
@@ -328,23 +332,24 @@ describe('puppet', () => {
 });
 ```
 
-The `authority` is no longer a randomly generated keypair but a PDA derived from the puppet-master program. This means the puppet-master can sign with it which it does inside `pullStrings`. It's worth noting that our implementation also allows non-canonical bumps but again because we are only interesting in being able to sign we don't care which bump is used.
+`authority`已经不在是一个随机生成的公私钥对了, 而是一个由puppet-master program导出的PDA. 这意味着puppet-master可以用它来签名, 正如在`pullStrings`中所看到的. 值得注意我们的实现也允许使用非标准bump, 但这里我们只想验证我们可以签名, 所以我们并不在乎用的是否是标准bump.
 
-> In some cases it's possible to reduce the number of accounts you need by making a PDA storing state also sign a CPI instead of defining a separate PDA to do that.
+> 在很多情况下, 我们可以通过让一个存数据的PDA, 也用来签名, 而不是额外定义一个PDA, 并以此来减少所需要accounts的数量.
 
-## PDAs: Conclusion
+## PDAs: 总结
 
-This section serves as a brief recap of the different things you can do with PDAs.
+这小节我们简单回顾一下PDA能实现的不同功能.
 
-First, you can create hashmaps with them. We created a user stats PDA which was derived from the user address. This derivation linked the user address and the user stats account, allowing the latter to be easily found given the former.
-Hashmaps also result in enforced uniqueness which can be used in many different ways, e.g. for only allowing one market per two assets in a decentralized exchange.
+首先, 你可以用PDA来创建hashmaps. 我们创建了一个由用户地址导出的PDA来储存user stats. 这个导出方法把用户的地址和用户的stats account联系到了一起, 这样只要有用户地址, 就很容易导出stats account.
 
-Secondly, PDAs can be used to allow programs to sign CPIs. This means that programs can be given control over assets which they then manage according to the rules defined in their code.
+Hashmaps还保证了唯一性, 这点可以在很多场景中运用, 比如, 在一个区中心化交易所应用中, 每两种资产只允许一个市场存在.
 
-You can even combine these two use cases and use a PDA that's used in an instruction as a state account to also sign a CPI.
+第二, PDAs可以用来让程序能够为CPI签名. 这意味着程序可以代码的逻辑和规则控制和管理资产和数据.
 
-Admittedly, working with PDAs is one of the most challenging parts of working with Solana.
-This is why in addition to our explanations here, we want to provide you with some further resources.
+你甚至可以结合这两个功能, 让一个instruction中的PDA即作为一个表示状态的account, 也为CPI签名.
+
+坦白说, 对PDAs的使用是使用Solana进行合约开发中最有挑战的技能.
+因此我们准备了一些额外的资料来对我们的内容进行补充.
 
 - [Pencilflips's twitter thread on PDAs](https://twitter.com/pencilflip/status/1455948263853600768?s=20&t=J2JXCwv395D7MNkX7a9LGw)
 - [jarry xiao's talk on PDAs and CPIs](https://www.youtube.com/watch?v=iMWaQRyjpl4)
