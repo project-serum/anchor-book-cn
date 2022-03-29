@@ -30,6 +30,7 @@
 ---
 
 - [Anchor相关工具](./chapter_5/anchor_tooling.md)
+  - [数据所占空间](./chapter_5/space.md)
   - [命令行CLI](./chapter_5/cli.md)
   - [Anchor版本管理器AVM](./chapter_5/avm.md)
   - [Anchor.toml配置文件](./chapter_5/anchor-toml_reference.md)
